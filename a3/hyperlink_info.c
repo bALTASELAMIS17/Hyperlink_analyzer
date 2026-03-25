@@ -9,7 +9,7 @@ size_t write_to_file(void *ptr, size_t size, size_t nmemb, void *userdata) {
     return fwrite(ptr, size, nmemb, fp);
 }
 
-int main(int argc, char **argv){
+int get_html_fp(int argc, char **argv){
     // Debugging cli arguments
     printf("[DEBUG]: I have received %d arguments:\n", argc);
     for (int i = 0; i < argc; i++){
@@ -52,7 +52,7 @@ int main(int argc, char **argv){
 
         //Follow redirects.
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-        
+
         //Set User agent to prevent looking like a bot.
         curl_easy_setopt(curl, CURLOPT_USERAGENT, USER_AGENT);
 
@@ -81,5 +81,16 @@ int main(int argc, char **argv){
 
 
 
+    return 0;
+}
+
+int main(int argc, char **argv) {
+    FILE *fp = get_html_fp(argc, argv);
+    HyperlinkLL *h = get_hyperlinkLL_from_file(fp);
+    printf("Hyperlink linked lists returned. \n");
+    while (h-> next != NULL){
+        printf("Hyperlink: %s, %d occurrences. \n", h->label, h->occurrences);
+        h = h->next;
+    }
     return 0;
 }
