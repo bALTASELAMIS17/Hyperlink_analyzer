@@ -172,6 +172,31 @@ int extract_hyperlink(FILE *fp, char ***labels_out) {
 	return count;
 }
 
+int find_hyperlink(FILE *fp, const char *target) {
+	if (target == NULL) {
+		return 0; 
+	}
+
+	rewind(fp);
+
+	// extract hyperlinks
+	char **labels;
+	int count = extract_hyperlink(fp, &labels);
+
+	int found = 0;
+
+	for (int i = 0; i < count; i++) {
+		if (strcasecmp(labels[i], target) == 0) {
+			found = 1;
+			break;
+		}
+	}
+
+	free_labels(labels, count);
+
+	return found;
+}
+
 void free_labels(char **labels, int count) {
 	for (int i = 0; i < count; i++) {
 		free(labels[i]);
