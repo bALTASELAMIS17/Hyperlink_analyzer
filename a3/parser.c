@@ -4,76 +4,7 @@
 #include <strings.h>
 #include "parser.h"
 
-#define MAX_LABELS 1000
-#define MAX_LINE 4000
-
-// mode 0 for raw count, mode 1 for user count
-int count_frequency(FILE *fp, const char *target, int mode) {
-
-	// target error check 
-	if (target == NULL || strlen(target) == 0) {
-		return 0;
-	}
-
-	// mode error check
-	if (mode != 0 && mode != 1) {
-		fprintf(stderr, "mode must be 0 (raw count) or 1 (user count)\n");
-		return -1;
-	}
-
-	// resets pointer back to beginning of file
-	rewind(fp); 
-
-	// holds a line of the file
-	char file_line[1000];
-	int count = 0;
-	int inside_text = 0; 
-
-	// goes through each line of the file
-	while (fgets(file_line, sizeof(file_line), fp) != NULL) {
-		
-		// want to read raw count
-		if (mode == 0) {
-			char *line_pointer = file_line;
-
-			// checks in each line if there's a match with the desired target
-			while ((line_pointer = strcasestr(line_pointer, target)) != NULL) {
-				count++; 
-				line_pointer += strlen(target);
-			}
-
-		}
-	    
-	    // mode 1 for user count
-		if (mode == 1) {
-			// detecting paragraph start
-			if (strstr(file_line, "<p") != NULL) {
-	        	inside_text = 1;
-		    }
-
-		    if (!(inside_text)) {
-			    continue;
-			}
-
-			strip_html_tags(file_line);
-
-			char *line_pointer = file_line;
-
-			// checks in each line if there's a match with the desired target
-			while ((line_pointer = strcasestr(line_pointer, target)) != NULL) {
-				count++; 
-				line_pointer += strlen(target);
-			}
-			
-			// detecting paragraph end
-			if (strstr(file_line, "</p>") != NULL) {
-	        	inside_text = 0;
-	    	}
-	    }
-	}
-
-	return count;
-}
+#define BASE_URL "https://wikipedia.org" 
 
 // returns 0 if label is unique, returns 1 if not
 int label_exists(char **labels, int count, const char *label) {
@@ -82,10 +13,19 @@ int label_exists(char **labels, int count, const char *label) {
 			return 1;
 		}
 	}
-	return 0; 
+	return 0;
 }
 
-int extract_hyperlink(FILE *fp, char ***labels_out) {
+// Stores number of unique hyperlink labels and their links and returns how many were found
+int extract_hyperlinks(const char *filepath, char ***labels_out, char ***links_out) {
+
+	// opens the file 
+	FILE *fp = fopen(filepath, "r"); 
+	if (fp == NULL) {
+		perror("fopen error");
+		exit(EXIT_FAILURE);
+	}
+
 
 	// holds a line of the file
 	char file_line[2000];
@@ -93,8 +33,9 @@ int extract_hyperlink(FILE *fp, char ***labels_out) {
 	int count = 0;
 
 	char **labels = malloc(capacity * sizeof(char *));
+	char **links  = malloc(capacity * sizeof(char *)); 
 	
-	if (labels == NULL) {
+	if ((labels == NULL) || (links == NULL)) {
         perror("ERROR: malloc failed");
         exit(EXIT_FAILURE);
     }
@@ -106,12 +47,38 @@ int extract_hyperlink(FILE *fp, char ***labels_out) {
 		// finds the start of a hyperlink label
 		while ((line_pointer = strstr(line_pointer, "<a href=\"/wiki")) != NULL) {
 			
+			// extracting the link
+			char *link_start = strstr(line_pointer, "href=\"");
+			if (!link_start) break;
+			link_start += 6;
+
+			char *link_end = strchr(link_start, '"');
+			if (!link_end) break;
+			int link_len = link_end - link_start;
+
+			// memory allocate link space 
+			char *link = malloc(strlen(BASE_URL) + link_len + 1);
+			if (link == NULL) {
+		        perror("ERROR: malloc failed");
+		        exit(EXIT_FAILURE);
+		    }
+
+		    // building the link
+		    snprintf(link, strlen(BASE_URL) + link_len + 1, "%s%.*s", BASE_URL, link_len, link_start);
+
+		    // extracting the label
 			char *start = strchr(line_pointer, '>');
-			if (!start) break;
+			if (!start) {
+				free(link); 
+				break;
+			}
 			start++; // moves past '>'
 
 			char *end = strstr(start, "</a>");
-			if (!end) break;
+			if (!end) {
+				free(link);
+				break;
+			}
 
 			// bad labels
 			int len = end - start;
@@ -122,7 +89,6 @@ int extract_hyperlink(FILE *fp, char ***labels_out) {
 
 			// memory allocate label
 			char *label = malloc(len+1); 
-
 			if (label == NULL) {
 		        perror("ERROR: malloc failed");
 		        exit(EXIT_FAILURE);
@@ -136,6 +102,7 @@ int extract_hyperlink(FILE *fp, char ***labels_out) {
 		    // if label is empty or too short, skip and free memory
 		    if (strlen(label) <= 1) {
 		    	free(label);
+		    	free(link);
 		    	line_pointer = end + 4;
 		    	continue;
 		    }
@@ -146,62 +113,51 @@ int extract_hyperlink(FILE *fp, char ***labels_out) {
 		    	// if there are more labels than existing capacity
 		    	if (count == capacity) {
 		    		capacity *= 2;
-		    		char **temp = realloc(labels, capacity * sizeof(char *));
-		    		// safely deal with realloc failure
-		    		if (temp == NULL) {
-				        perror("ERROR: realloc failed");
-				        free_labels(labels, count);
-				        exit(EXIT_FAILURE);
-				    }
+		    		char **temp_labels = realloc(labels, capacity * sizeof(char *));
+		    		if (temp_labels == NULL) {
+					    free_all(labels, links, count);
+					    exit(EXIT_FAILURE);
+					}
 
-				    labels = temp;
+		    		char **temp_links  = realloc(links,  capacity * sizeof(char *));
+		    		if (temp_links  == NULL) {
+					    free_all(temp_labels, links, count);
+					    exit(EXIT_FAILURE);
+					}
+
+				    labels = temp_labels;
+				    links = temp_links;
 		    	}
 
-		    	labels[count++] = label;
+		    	labels[count] = label;
+		    	links[count] = link;
+		    	count++;
 		    }
 
 		    else {
 		    	free(label);
+		    	free(link);
 		    }
 
 		    line_pointer = end + 4;
 		}
 	}
-
+	fclose(fp);
+	
 	*labels_out = labels;
+	*links_out = links;
+
 	return count;
 }
 
-int find_hyperlink(FILE *fp, const char *target) {
-	if (target == NULL) {
-		return 0; 
-	}
-
-	rewind(fp);
-
-	// extract hyperlinks
-	char **labels;
-	int count = extract_hyperlink(fp, &labels);
-
-	int found = 0;
-
-	for (int i = 0; i < count; i++) {
-		if (strcasecmp(labels[i], target) == 0) {
-			found = 1;
-			break;
-		}
-	}
-
-	free_labels(labels, count);
-
-	return found;
-}
-
-void free_labels(char **labels, int count) {
+// Frees memory for hyperlink labels and links 
+void free_all(char **labels, char **links, int count) {
 	for (int i = 0; i < count; i++) {
 		free(labels[i]);
+		free(links[i]);
 	}
 	free(labels);
+	free(links); 
 }
 
 // Strips html tags to find label names
