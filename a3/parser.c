@@ -2,8 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <curl/curl.h>
 #include "parser.h"
 
+#define USER_AGENT "Mozilla/5.0"
+#define TEMP_FILE "main_url_html.txt"
 #define BASE_URL "https://wikipedia.org" 
 
 // returns 0 if label is unique, returns 1 if not
@@ -186,4 +189,66 @@ void strip_html_tags(char *text) {
 	}
 
 	*write_pointer = '\0';
+}
+
+// Writes to the file 
+size_t write_to_file(void *ptr, size_t size, size_t nmemb, void *userdata) {
+    FILE *fp = (FILE *)userdata;
+    return fwrite(ptr, size, nmemb, fp);
+}
+
+// Takes in a wikipedia link and returns hyperlink count and stores links and labels
+int hyperlink_analyzer (const char *url, char ***labels_out, char ***links_out) {
+	FILE *fp = fopen("main_url_html.txt", "w");
+    if (!fp) {
+        perror("fopen");
+        return 1;
+    }
+
+    CURL *curl;
+    CURLcode result;
+    char errbuf[CURL_ERROR_SIZE];
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl = curl_easy_init();
+
+    if (curl){
+        errbuf[0] = '\0';
+
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errbuf);
+        //curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+
+        //Follow redirects.
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        
+        //Set User agent to prevent looking like a bot.
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, USER_AGENT);
+
+        //Set ouput of curl. Right now saves to file, may need to allocate heap and place in memory.
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_file);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+
+        result = curl_easy_perform(curl);
+
+        if (result != CURLE_OK) {
+            if (errbuf[0] != '\0') {
+                fprintf(stderr, "libcurl error: %s\n", errbuf);
+                return 0;
+            } else {
+                fprintf(stderr, "libcurl error: %s\n", curl_easy_strerror(result));
+                return 0;
+            }
+        }
+
+        curl_easy_cleanup(curl);
+    } else {
+        fprintf(stderr, "curl_easy_init failed.\n");
+    }
+
+    // Appease the valgrind gods.
+    fclose(fp);
+    curl_global_cleanup();
+
+    return extract_hyperlinks(TEMP_FILE, labels_out, links_out);
 }

@@ -5,18 +5,18 @@
 int main() {
 	char **labels;
 	char **links;
-	int hyperlink_count = extract_hyperlinks("main_url_html.txt", &labels, &links); 
+
+	int hyperlink_count = hyperlink_analyzer(
+	    "https://wikipedia.org/wiki/Ashtone_Morgan",
+	    &labels,
+	    &links
+	);
 
 	printf("Found %d unique labels in the file\n\n", hyperlink_count);
 
 	for (int i = 0; i < hyperlink_count; i++) {
-		printf("%s\n", labels[i]);
-	}
-
-	printf("\n");
-
-	for (int i = 0; i < hyperlink_count; i++) {
-		printf("%s\n", links[i]);
+		printf("Label: %s\n", labels[i]);
+		printf("Link: %s\n", links[i]);
 	}
 
 	free_all(labels, links, hyperlink_count); 
