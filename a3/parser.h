@@ -15,9 +15,6 @@ void strip_html_tags(char *text);
 // Frees memory for hyperlink labels and links 
 void free_all(char **labels, char **links, int count);
 
-// Writes to the file 
-size_t write_to_file(void *ptr, size_t size, size_t nmemb, void *userdata);
-
 // Takes in a wikipedia link and returns hyperlink count and stores links and labels
 int hyperlink_analyzer (const char *url, char ***labels_out, char ***links_out);
 

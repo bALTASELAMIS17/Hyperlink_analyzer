@@ -2,12 +2,17 @@
 #include <stdlib.h>
 #include "parser.h"
 
-int main() {
+int main(int argc, char **argv) {
 	char **labels;
 	char **links;
 
+	if (argc != 2) {
+        printf("Invalid Input");
+        return 1;
+    }
+
 	int hyperlink_count = hyperlink_analyzer(
-	    "https://wikipedia.org/wiki/Ashtone_Morgan",
+	    argv[1],
 	    &labels,
 	    &links
 	);
