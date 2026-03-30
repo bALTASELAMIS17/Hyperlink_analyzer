@@ -199,7 +199,7 @@ int breadth_first_search(char *current_url, char *end_url, int depth) {
 }
 
 int main(void){
-    int result = breadth_first_search("https://en.wikipedia.org/wiki/Webber_Academy", "https://wikipedia.org/wiki/Western_Canada", 0);
+    int result = breadth_first_search("https://en.wikipedia.org/wiki/Webber_Academy", "https://wikipedia.org/wiki/Calgary", 0);
     printf("Final result: %d\n", result);
     return 0;
 }
