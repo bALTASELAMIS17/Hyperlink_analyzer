@@ -5,6 +5,7 @@
 #include <curl/curl.h>
 #include "parser.h"
 #include "curling.h"
+#include <dirent.h>
 
 #define BASE_URL "https://wikipedia.org" 
 
@@ -201,4 +202,30 @@ int hyperlink_analyzer (const char *url, char ***labels_out, char ***links_out) 
 	}
 
     return extract_hyperlinks(temp_file, labels_out, links_out);
+}
+
+void cleanup_html_files() {
+	DIR *dir;
+	struct dirent *entry;; // represents one file at a time
+
+	dir = opendir("html_files"); // opens the html_files folder
+
+	if (dir == NULL) {
+		perror("opendir failed"); 
+		return;
+	}
+
+	char filepath[500]; // buffer storing filepath
+
+	while ((entry = readdir(dir)) != NULL) { // goes through every file in directory
+		if (strncmp(entry->d_name, "main_url_html", 13) == 0) { // if filename starts with desired tag
+			snprintf(filepath, sizeof(filepath), "html_files/%s", entry->d_name); // builds full path
+
+			if (remove(filepath) == 0) { // checks for successful deletion
+				printf("Deleted %s\n", filepath);
+			}
+		}
+	}
+
+	closedir(dir);	
 }

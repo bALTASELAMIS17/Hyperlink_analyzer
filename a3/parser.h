@@ -18,4 +18,7 @@ void free_all(char **labels, char **links, int count);
 // Takes in a wikipedia link and returns hyperlink count and stores links and labels
 int hyperlink_analyzer (const char *url, char ***labels_out, char ***links_out);
 
+// Deletes all files in the the html_files folder
+void cleanup_html_files(); 
+
 #endif
