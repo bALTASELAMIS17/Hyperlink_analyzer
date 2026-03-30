@@ -145,113 +145,102 @@ void free_hyperlinks(char **labels, char **links, int num_links){
     free(links);
 }
 
-int breadth_first_search(char *current_url, char *end_url, int depth) {
-    char **urls = NULL;
-    char **labels = NULL;
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
-    //rate limiter
-    usleep(200000 + (rand() % 200000));
-    int num_links = hyperlink_analyzer(current_url, &labels, &urls);
-    printf("%d neighbors found for %s\n", num_links, current_url);
+#define MAX_QUEUE_SIZE 100000
 
-    if (num_links <= 0) {
-        free_hyperlinks(labels, urls, num_links);
-        return -1;
-    }
+// Each node in the queue has url and depth
+typedef struct {
+    char *url;
+    int depth;
+} QueueNode;
 
-    // Maximum depth limit
-    if (depth >= 2) {
-        printf("Depth of 3 reached, quit\n");
-        free_hyperlinks(labels, urls, num_links);
-        return -1;
-    }
+int breadth_first_search(char *current_url, char *end_url, int depth, int max_depth) {
+    QueueNode queue[MAX_QUEUE_SIZE];
+    int start_index = 0;
+    int end_index = 0;
 
-    // Check all neighbors
-    for (int i = 0; i < num_links; i++) {
-        printf("%s\n", urls[i]);
+    // mark the starting URL as discovered
+    check_and_add_discovered_url(current_url);
 
-        // See if there is a match
-        if (strcmp(end_url, urls[i]) == 0) {
-            printf("======================== MATCH IS FOUND\n");
-            free_hyperlinks(labels, urls, num_links);
-            return depth + 1;
-        }
-    }
+    queue[end_index].url = strdup(current_url);
+    queue[end_index].depth = depth;
+    end_index++;
 
-    // Creates pipes
-    int pipes[num_links][2];
-    int children_pids[num_links];
-    int num_children = 0;
+    // While the queue is non empty
+    while (start_index < end_index) {
+        QueueNode current = queue[start_index];
+        start_index++;
 
-    // Loop through all neighbors
-    for (int i = 0; i < num_links; i++) {
+        printf("Finding neighbors of %s at depth %d\n", current.url, current.depth);
 
-        if (check_and_add_discovered_url(urls[i])) {
-            printf("Skipping already discovered URL: %s\n", urls[i]);
+        // Depth limit
+        if (current.depth >= max_depth) {
+            free(current.url);
             continue;
         }
 
-        // Make pipe
-        if (pipe(pipes[num_children]) == -1) {
-            perror("pipe");
+        // rate limit
+        usleep(200000 + (rand() % 200000));
+
+        char **urls = NULL;
+        char **labels = NULL;
+        int num_links = hyperlink_analyzer(current.url, &labels, &urls);
+        printf("%d neighbors found for %s\n", num_links, current.url);
+        if (num_links <= 0) {
             free_hyperlinks(labels, urls, num_links);
-            return -1;
+            free(current.url);
+            continue;
         }
-
-        // Fork
-        int r = fork();
-        if (r < 0) {
-            perror("fork");
-            close(pipes[num_children][0]);
-            close(pipes[num_children][1]);
-            free_hyperlinks(labels, urls, num_links);
-            return -1;
-        }
-
-        // Child: close read end, conduct search, write depth result to pipe
-        if (r == 0) {
-            close(pipes[num_children][0]);
-
-            printf("Child searching %s at depth %d\n", urls[i], depth + 1);
-            int result = breadth_first_search(urls[i], end_url, depth + 1);
-            if (write(pipes[num_children][1], &result, sizeof(int)) != sizeof(int)) {
-                perror("write");
-                close(pipes[num_children][1]);
-                exit(1);
+        for (int i = 0; i < num_links; i++) {
+            // check match
+            if (strcmp(end_url, urls[i]) == 0) {
+                printf("======================== MATCH IS FOUND\n");
+                free_hyperlinks(labels, urls, num_links);
+                free(current.url);
+                // if match is found, clear the queue
+                while (start_index < end_index) {
+                    free(queue[start_index].url);
+                    start_index++;
+                }
+                return current.depth + 1;
             }
 
-            close(pipes[num_children][1]);
-            exit(0);
-        }
-
-        // Parent: store childs pid for use later, close write end
-        children_pids[num_children] = r;
-        close(pipes[num_children][1]);
-        num_children++;
-    }
-
-    // Given the pid of the child processes, wait for all of them to finish.
-    // If any of them returns non -1 and its currently -1, or if they have a better result, change best result
-    int best_result = -1;
-    for (int i = 0; i < num_children; i++) {
-        int child_result = -1;
-        if (read(pipes[i][0], &child_result, sizeof(int)) != sizeof(int)) {
-            perror("read");
-            child_result = -1;
-        }
-        close(pipes[i][0]);
-        waitpid(children_pids[i], NULL, 0);
-
-        if (child_result != -1) {
-            if (best_result == -1 || child_result < best_result) {
-                best_result = child_result;
+            // skip already discovered
+            if (check_and_add_discovered_url(urls[i])) {
+                printf("Skipping already discovered URL: %s\n", urls[i]);
+                continue;
             }
+
+            if (end_index >= MAX_QUEUE_SIZE) {
+                fprintf(stderr, "Queue filled\n");
+                free_hyperlinks(labels, urls, num_links);
+                free(current.url);
+
+                while (start_index < end_index) {
+                    free(queue[start_index].url);
+                    start_index++;
+                }
+
+                return -1;
+            }
+
+            queue[end_index].url = strdup(urls[i]);
+            queue[end_index].depth = current.depth + 1;
+            end_index++;
         }
+
+        free_hyperlinks(labels, urls, num_links);
+        free(current.url);
     }
 
-    free_hyperlinks(labels, urls, num_links);
-    return best_result;
+    return -1;
 }
+
+
 int main(void) {
     initialize_urls_file();
     check_and_add_discovered_url("https://en.wikipedia.org/wiki/Webber_Academy");
@@ -259,7 +248,8 @@ int main(void) {
     int result = breadth_first_search(
         "https://en.wikipedia.org/wiki/Webber_Academy",
         "https://wikipedia.org/wiki/Western_Canada",
-        0
+        0,
+        3
     );
 
     printf("Final result: %d\n", result);
