@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <sys/file.h>
 #include "parser.h"
 
 #define MAX_LINKS 1000
@@ -83,6 +84,58 @@ void process_end(){
     close(fd);
 }
 
+#define URLS_FILE "discovered_urls.txt"
+#define MAX_LINE 1024
+
+void initialize_urls_file(void) {
+    int fd = open(URLS_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd == -1) {
+        perror("open");
+        exit(1);
+    }
+    close(fd);
+}
+
+
+bool check_and_add_discovered_url(const char *url) {
+    int fd = open(URLS_FILE, O_RDWR | O_CREAT, 0666);
+    if (fd == -1) {
+        perror("open");
+        exit(1);
+    }
+
+    //Lock fp to prevent racing of children (blocks other processes).
+    if (flock(fd, LOCK_EX) == -1) {
+        perror("flock");
+        close(fd);
+        exit(1);
+    }
+
+    FILE *fp = fdopen(fd, "r+");
+    if (fp == NULL) {
+        perror("fdopen");
+        close(fd);
+        exit(1);
+    }
+
+    char line[MAX_LINE];
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        line[strcspn(line, "\n")] = '\0';
+        if (strcmp(line, url) == 0) {
+            flock(fd, LOCK_UN);
+            fclose(fp);
+            return true;
+        }
+    }
+
+    fprintf(fp, "%s\n", url);
+    fflush(fp);
+
+    flock(fd, LOCK_UN);
+    fclose(fp);
+    return false;
+}
+
 void free_hyperlinks(char **labels, char **links, int num_links){
     for (int i = 0; i < num_links; i++) {
         free(labels[i]);
@@ -96,6 +149,8 @@ int breadth_first_search(char *current_url, char *end_url, int depth) {
     char **urls = NULL;
     char **labels = NULL;
 
+    //rate limiter
+    usleep(200000 + (rand() % 200000));
     int num_links = hyperlink_analyzer(current_url, &labels, &urls);
     printf("%d neighbors found for %s\n", num_links, current_url);
 
@@ -130,11 +185,11 @@ int breadth_first_search(char *current_url, char *end_url, int depth) {
 
     // Loop through all neighbors
     for (int i = 0; i < num_links; i++) {
-        // TODO: check whether urls[i] has already been visited in the external file
-        // If already visited, continue
-        // If not, write it into the file
-
-        // TODO: check current number of running processes
+        
+        if (check_and_add_discovered_url(urls[i])) {
+            printf("Skipping already discovered URL: %s\n", urls[i]);
+            continue;
+        }
 
         // Make pipe
         if (pipe(pipes[num_children]) == -1) {
@@ -197,9 +252,16 @@ int breadth_first_search(char *current_url, char *end_url, int depth) {
     free_hyperlinks(labels, urls, num_links);
     return best_result;
 }
+int main(void) {
+    initialize_urls_file();
+    check_and_add_discovered_url("https://en.wikipedia.org/wiki/Webber_Academy");
 
-int main(void){
-    int result = breadth_first_search("https://en.wikipedia.org/wiki/Webber_Academy", "https://wikipedia.org/wiki/Western_Canada", 0);
+    int result = breadth_first_search(
+        "https://en.wikipedia.org/wiki/Webber_Academy",
+        "https://wikipedia.org/wiki/Western_Canada",
+        0
+    );
+
     printf("Final result: %d\n", result);
     return 0;
 }
