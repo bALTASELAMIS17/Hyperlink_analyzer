@@ -224,7 +224,7 @@ void strip_html_tags(char *text) {
 // Takes in a wikipedia link and returns hyperlink count and stores links and labels
 int hyperlink_analyzer (const char *url, char ***labels_out, char ***links_out) {
 	char temp_file[100];
-	snprintf(temp_file, sizeof(temp_file), "main_url_html_%d.txt", getpid());
+	snprintf(temp_file, sizeof(temp_file), "html_files/main_url_html_%d.txt", getpid());
 
 	char *result = get_html_from_url((char *)url, temp_file);
 
