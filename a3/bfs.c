@@ -185,7 +185,7 @@ int breadth_first_search(char *current_url, char *end_url, int depth) {
 
     // Loop through all neighbors
     for (int i = 0; i < num_links; i++) {
-        
+
         if (check_and_add_discovered_url(urls[i])) {
             printf("Skipping already discovered URL: %s\n", urls[i]);
             continue;
