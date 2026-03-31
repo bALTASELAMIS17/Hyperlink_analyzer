@@ -1,13 +1,12 @@
 #include <stdio.h>
-#include <curl/curl.h>
+#include <stdlib.h>
+#include "curling.h"
+#include "dfs.h"
 
-#define USER_AGENT "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
-#define DEFAULT_MAIN_URL "https://wikipedia.org"
-
-size_t write_to_file(void *ptr, size_t size, size_t nmemb, void *userdata) {
-    FILE *fp = (FILE *)userdata;
-    return fwrite(ptr, size, nmemb, fp);
-}
+#define DEFAULT_START_URL "https://en.wikipedia.org/wiki/Mimico_Creek"
+#define DEFAULT_END_URL "https://wikipedia.org/wiki/Calgary"
+#define DEFAULT_DEPTH 2
+#define MAX_PROCESSES 170
 
 int main(int argc, char **argv){
     // Debugging cli arguments
@@ -15,71 +14,29 @@ int main(int argc, char **argv){
     for (int i = 0; i < argc; i++){
         printf(" - Argument %d: %s\n", i, argv[i]);
     }
-    // Debugging end.
 
-    char *MAIN_URL = DEFAULT_MAIN_URL;
+    char *start_url = DEFAULT_START_URL;
+    char *end_url   = DEFAULT_END_URL;
+    int depth       = DEFAULT_DEPTH;  // ← default is 2
 
-    if (argc == 1) {
-        printf("No arguments provided, using default URL: %s\n", DEFAULT_MAIN_URL);
-    } else if (argc > 2) {
-        printf("Usage: %s \"Website URL\"\n", argv[0]);
-        return 1;
+    if (argc == 4) {
+        start_url = argv[1];
+        end_url   = argv[2];
+        depth     = atoi(argv[3]);
     } else {
-        MAIN_URL = argv[1];
+        printf("Invalid number of arguments.\n");
+        printf("Using default START_URL: %s\n", DEFAULT_START_URL);
+        printf("Using default END_URL: %s\n", DEFAULT_END_URL);
+        printf("Using default depth: %d\n", DEFAULT_DEPTH);
+        printf("Usage: %s \"START_URL\" \"END_URL\" depth\n", argv[0]);
     }
 
-    //download location of html contents of website
-    FILE *fp = fopen("main_url_html.txt", "w");
-    if (!fp) {
-        perror("fopen");
-        return 1;
-    }
+    printf("Start URL: %s\n", start_url);
+    printf("End URL: %s\n", end_url);
+    printf("Depth: %d\n", depth);
+    printf("\n");
 
-    //I just used whatever libcurl documentation says for easy curl
-    CURL *curl;
-    CURLcode result;
-    char errbuf[CURL_ERROR_SIZE];
-
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-    curl = curl_easy_init();
-
-    if (curl){
-        errbuf[0] = '\0';
-
-        curl_easy_setopt(curl, CURLOPT_URL, MAIN_URL);
-        curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errbuf);
-        //curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-
-        //Follow redirects.
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-        
-        //Set User agent to prevent looking like a bot.
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, USER_AGENT);
-
-        //Set ouput of curl. Right now saves to file, may need to allocate heap and place in memory.
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_file);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
-
-        result = curl_easy_perform(curl);
-
-        if (result != CURLE_OK) {
-            if (errbuf[0] != '\0') {
-                fprintf(stderr, "libcurl error: %s\n", errbuf);
-            } else {
-                fprintf(stderr, "libcurl error: %s\n", curl_easy_strerror(result));
-            }
-        }
-
-        curl_easy_cleanup(curl);
-    } else {
-        fprintf(stderr, "curl_easy_init failed.\n");
-    }
-
-    // Appease the valgrind gods.
-    fclose(fp);
-    curl_global_cleanup();
-
-
+    start_search(start_url, end_url, depth, MAX_PROCESSES);
 
     return 0;
 }
