@@ -6,7 +6,7 @@
 #define DEFAULT_START_URL "https://en.wikipedia.org/wiki/Mimico_Creek"
 #define DEFAULT_END_URL "https://wikipedia.org/wiki/Calgary"
 #define DEFAULT_DEPTH 2
-#define MAX_PROCESSES 170
+#define MAX_PROCESSES 700
 
 int main(int argc, char **argv){
     // Debugging cli arguments
@@ -17,7 +17,7 @@ int main(int argc, char **argv){
 
     char *start_url = DEFAULT_START_URL;
     char *end_url   = DEFAULT_END_URL;
-    int depth       = DEFAULT_DEPTH;  // ← default is 2
+    int depth       = DEFAULT_DEPTH;
 
     if (argc == 4) {
         start_url = argv[1];

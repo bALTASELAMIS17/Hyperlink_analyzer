@@ -6,19 +6,20 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <sys/file.h>
+#include <stdint.h>
 #include "parser.h"
 
 #define MAX_LINKS 1000
 #define MAX_URL_LEN 100
 #define MAX_LINE 1024
 #define PROCESSES_FILE "processes.txt"
+#define MAX_PATH_LEN 4096
 #define FOUND_FILE "found.txt"
 #define URLS_FILE "discovered_urls.txt"
 
 // Initialize the file to write whether we have found the end file
 void initialize_found_file(void) {
     int fd = open(FOUND_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    // If doesn't open correctly
     if (fd == -1) {
         perror("open found file");
         exit(1);
@@ -106,13 +107,40 @@ void initialize_processes_file(){
     close(fd);
 }
 
-// Print the path of the urls
-void print_path(char *path[], int path_len) {
-    printf("\n============================================== PATH FOUND:\n");
+// Build string with the path of the urls
+void sprint_path(char *buffer, char *path[], int path_len) {
+    int offset = 0;
+    offset += snprintf(buffer + offset, MAX_PATH_LEN - offset, "\n============================================== PATH FOUND:\n");
     for (int i = 0; i < path_len; i++) {
-        printf("[%d] %s\n", i, path[i]);
+        if (offset >= MAX_PATH_LEN) break;
+        offset += snprintf(buffer + offset, MAX_PATH_LEN - offset, "[%d] %s\n", i, path[i]);
     }
-    printf("\n");
+    if (offset < MAX_PATH_LEN) {
+        snprintf(buffer + offset, MAX_PATH_LEN - offset, "\n");
+    }
+}
+
+//Read bytes from fd ensuring interrupted/chunked reads complete up to count
+int read_full(int fd, void *buf, size_t count) {
+    size_t total = 0;
+    while (total < count) {
+        ssize_t r = read(fd, (char*)buf + total, count - total);
+        if (r <= 0) break;
+        total += r;
+    }
+    return total;
+}
+
+//Write bytes to fd ensuring interrupted/chunked writes complete up to count. 
+//Incomplete chunking can be caused by scheduler remving proc from cpu.
+int write_full(int fd, const void *buf, size_t count) {
+    size_t total = 0;
+    while (total < count) {
+        ssize_t w = write(fd, (const char*)buf + total, count - total);
+        if (w <= 0) break;
+        total += w;
+    }
+    return total;
 }
 
 // Check if the number of processes have exceeded the max
@@ -280,9 +308,11 @@ void free_hyperlinks(char **labels, char **links, int num_links){
 }
 
 // Given current and target url, maximum depth, maximum number of processes, finds the path between the urls with DFS search
-int depth_first_search(char *current_url, char *end_url, int depth, int max_depth, int max_processes, char *path[], int path_len) {
+int depth_first_search(char *current_url, char *end_url, int depth, int max_depth, int max_processes, char *path[], int path_len, char *found_path_str_out) {
     char **urls = NULL;
     char **labels = NULL;
+    int best_result = -1;
+    char best_path_str[MAX_PATH_LEN] = "";
 
     if (is_solution_found()) {
         return -1;
@@ -306,14 +336,15 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
         if (strcmp(end_url, urls[i]) == 0) {
             mark_solution_found();
 
-            printf("\n============================================== ENDING URL FOUND\n");
+            printf("\n======= A CHILD HAS FOUND THE DESTINATION URL, WAITING FOR OTHER PROCESSES TO TERMINATE =======\n");
             char *final_path[max_depth + 2];
             for (int j = 0; j < path_len; j++) {
                 final_path[j] = path[j];
             }
             final_path[path_len] = urls[i];
 
-            print_path(final_path, path_len + 1);
+            sprint_path(best_path_str, final_path, path_len + 1);
+            strcpy(found_path_str_out, best_path_str);
 
             free_hyperlinks(labels, urls, num_links);
             return depth + 1;
@@ -331,8 +362,6 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
     int pipes[num_links][2];
     int children_pids[num_links];
     int num_children = 0;
-
-    int best_result = -1;
 
     // Loop through all neighbors
     for (int i = 0; i < num_links; i++) {
@@ -363,13 +392,21 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
                 perror("read from child");
                 child_result = -1;
             }
-            close(pipes[num_children - 1][0]);
-
+            
             if (child_result != -1) {
-                if (best_result == -1 || child_result < best_result) {
-                    best_result = child_result;
+                char temp_path[MAX_PATH_LEN];
+                uint32_t len = 0;
+                read_full(pipes[num_children - 1][0], &len, sizeof(uint32_t));
+                if (len > 0 && len <= MAX_PATH_LEN) {
+                    read_full(pipes[num_children - 1][0], temp_path, len);
+                    temp_path[len - 1] = '\0';
+                    if (best_result == -1 || child_result < best_result) {
+                        best_result = child_result;
+                        strcpy(best_path_str, temp_path);
+                    }
                 }
             }
+            close(pipes[num_children - 1][0]);
 
             if (child_result != -1) {
                 mark_solution_found();
@@ -429,7 +466,8 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
             }
             next_path[path_len] = urls[i];
 
-            int result = depth_first_search(urls[i], end_url, depth + 1, max_depth, max_processes, next_path, path_len + 1);
+            char child_path_str[MAX_PATH_LEN] = "";
+            int result = depth_first_search(urls[i], end_url, depth + 1, max_depth, max_processes, next_path, path_len + 1, child_path_str);
 
             if (result != -1) {
                 mark_solution_found();
@@ -440,6 +478,12 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
                 close(pipes[num_children][1]);
                 process_end();
                 exit(1);
+            }
+            
+            if (result != -1) {
+                uint32_t len = strlen(child_path_str) + 1;
+                write_full(pipes[num_children][1], &len, sizeof(uint32_t));
+                write_full(pipes[num_children][1], child_path_str, len);
             }
 
             close(pipes[num_children][1]);
@@ -460,18 +504,30 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
             perror("read from child");
             child_result = -1;
         }
-        close(pipes[i][0]);
 
         if (child_result != -1) {
-            if (best_result == -1 || child_result < best_result) {
-                best_result = child_result;
+            char temp_path[MAX_PATH_LEN];
+            uint32_t len = 0;
+            read_full(pipes[i][0], &len, sizeof(uint32_t));
+            if (len > 0 && len <= MAX_PATH_LEN) {
+                read_full(pipes[i][0], temp_path, len);
+                temp_path[len - 1] = '\0';
+                if (best_result == -1 || child_result < best_result) {
+                    best_result = child_result;
+                    strcpy(best_path_str, temp_path);
+                }
             }
             mark_solution_found();
         }
+        close(pipes[i][0]);
     }
 
     // Free the space for the urls adn labels
     free_hyperlinks(labels, urls, num_links);
+    
+    if (best_result != -1) {
+        strcpy(found_path_str_out, best_path_str);
+    }
     return best_result;
 }
 
@@ -483,12 +539,14 @@ void start_search(char *start_url, char *end_url, int max_depth, int max_process
     cleanup_html_files();
     char *path[4];
     path[0] = start_url;
-    int result = depth_first_search(start_url, end_url, 0, max_depth + 1, max_processes, path, 1);
+    char found_path_str[MAX_PATH_LEN] = "";
+    int result = depth_first_search(start_url, end_url, 0, max_depth + 1, max_processes, path, 1, found_path_str);
     if (result == -1){
         printf("\nNo path found.\n\n");
     }
     else {
-        printf("\nPath Length: %d\n\n", result);
+        printf("%s\n", found_path_str);
+        printf("Path Length: %d", result);
     }
     cleanup_html_files();
 }
