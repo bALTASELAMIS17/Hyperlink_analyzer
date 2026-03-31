@@ -16,6 +16,7 @@
 #define MAX_PATH_LEN 4096
 #define FOUND_FILE "found.txt"
 #define URLS_FILE "discovered_urls.txt"
+#define RATELIMITER_TIME (100000 * (depth * depth + 1) + (rand() % 200000))
 
 // Initialize the file to write whether we have found the end file
 void initialize_found_file(void) {
@@ -318,7 +319,7 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
         return -1;
     }
     // Delay to prevent too frequent requests to Wikipedia
-    usleep(1000000 * (depth * depth + 1) + (rand() % 200000));
+    usleep(RATELIMITER_TIME);
     int num_links = hyperlink_analyzer(current_url, &labels, &urls);
     printf("%d neighbors found for %s\n", num_links, current_url);
     if (num_links <= 0) {
