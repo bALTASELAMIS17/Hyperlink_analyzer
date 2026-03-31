@@ -370,7 +370,7 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
             break;
         }
 
-        usleep(1000000 * (depth * depth + 1) + (rand() % 200000));
+        usleep(RATELIMITER_TIME);
 
         // Wait until the max process limit is no longer an issue (ie a spot has freed up)
         while (!process_limit_check(max_processes)) {
@@ -455,6 +455,7 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
                 int result = -1;
                 write(pipes[num_children][1], &result, sizeof(int));
                 close(pipes[num_children][1]);
+                free_hyperlinks(labels, urls, num_links);
                 process_end();
                 exit(0);
             }
@@ -477,6 +478,7 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
             if (write(pipes[num_children][1], &result, sizeof(int)) != sizeof(int)) {
                 perror("write");
                 close(pipes[num_children][1]);
+                free_hyperlinks(labels, urls, num_links);
                 process_end();
                 exit(1);
             }
@@ -488,6 +490,7 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
             }
 
             close(pipes[num_children][1]);
+            free_hyperlinks(labels, urls, num_links);
             process_end();
             exit(0);
         }
