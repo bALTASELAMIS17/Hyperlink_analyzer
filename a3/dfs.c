@@ -16,7 +16,7 @@
 #define MAX_PATH_LEN 4096
 #define FOUND_FILE "found.txt"
 #define URLS_FILE "discovered_urls.txt"
-#define RATELIMITER_TIME (100000 * (depth * depth + 1) + (rand() % 200000))
+#define RATELIMITER_TIME (1000000 * (depth * depth + 1) + (rand() % 200000))
 
 // Initialize the file to write whether we have found the end file
 void initialize_found_file(void) {
