@@ -546,7 +546,7 @@ void start_search(char *start_url, char *end_url, int max_depth, int max_process
     }
     else {
         printf("%s\n", found_path_str);
-        printf("Path Length: %d", result);
+        printf("Path Length: %d\n", result);
     }
     cleanup_html_files();
 }
