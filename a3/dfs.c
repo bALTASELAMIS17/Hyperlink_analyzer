@@ -14,31 +14,34 @@
 #define MAX_LINE 1024
 #define PROCESSES_FILE "processes.txt"
 #define MAX_PATH_LEN 4096
-#define FOUND_FILE "found.txt"
+#define STATUS_FILE "status.txt"
+#define STATUS_SEARCHING 0
+#define STATUS_FOUND 1
+#define STATUS_PROCESS_CAP 2
 #define URLS_FILE "discovered_urls.txt"
 #define RATELIMITER_TIME (1000000 * (depth * depth + 1) + (rand() % 200000))
 
-// Initialize the file to write whether we have found the end file
-void initialize_found_file(void) {
-    int fd = open(FOUND_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+// Initialize the status file (0 = searching, 1 = found, 2 = process cap reached)
+void initialize_status_file(void) {
+    int fd = open(STATUS_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (fd == -1) {
-        perror("open found file");
+        perror("open status file");
         exit(1);
     }
-    int found = 0;
-    if (write(fd, &found, sizeof(int)) != sizeof(int)) {
-        perror("write found file");
+    int status = STATUS_SEARCHING;
+    if (write(fd, &status, sizeof(int)) != sizeof(int)) {
+        perror("write status file");
         close(fd);
         exit(1);
     }
     close(fd);
 }
 
-// Read from the found file to check if program should end
-bool is_solution_found(void) {
-    int fd = open(FOUND_FILE, O_RDONLY | O_CREAT, 0666);
+// Read the status file and return the raw value
+int read_status(void) {
+    int fd = open(STATUS_FILE, O_RDONLY | O_CREAT, 0666);
     if (fd == -1) {
-        perror("open found file");
+        perror("open status file");
         exit(1);
     }
 
@@ -48,25 +51,29 @@ bool is_solution_found(void) {
         exit(1);
     }
 
-    int found = 0;
-    if (read(fd, &found, sizeof(int)) == -1) {
-        perror("read found file");
+    int status = 0;
+    if (read(fd, &status, sizeof(int)) == -1) {
+        perror("read status file");
         flock(fd, LOCK_UN);
         close(fd);
         exit(1);
     }
-    else{
-        flock(fd, LOCK_UN);
-        close(fd);
-        return found == 1;
-    }
+
+    flock(fd, LOCK_UN);
+    close(fd);
+    return status;
 }
 
-// Write to the file to change it to 1, end url found
-void mark_solution_found(void) {
-    int fd = open(FOUND_FILE, O_RDWR | O_CREAT, 0666);
+// Check if any termination condition has been met (found or process cap)
+bool should_terminate(void) {
+    return read_status() != STATUS_SEARCHING;
+}
+
+// Write a status code to the status file
+void set_status(int new_status) {
+    int fd = open(STATUS_FILE, O_RDWR | O_CREAT, 0666);
     if (fd == -1) {
-        perror("open found file");
+        perror("open status file");
         exit(1);
     }
 
@@ -75,15 +82,14 @@ void mark_solution_found(void) {
         close(fd);
         exit(1);
     }
-    int found = 1;
     if (lseek(fd, 0, SEEK_SET) == -1) {
         perror("lseek");
         flock(fd, LOCK_UN);
         close(fd);
         exit(1);
     }
-    if (write(fd, &found, sizeof(int)) != sizeof(int)) {
-        perror("write found file");
+    if (write(fd, &new_status, sizeof(int)) != sizeof(int)) {
+        perror("write status file");
         flock(fd, LOCK_UN);
         close(fd);
         exit(1);
@@ -179,6 +185,7 @@ bool process_limit_check(int max_processes) {
     if (processes >= max_processes) {
         flock(fd, LOCK_UN);
         close(fd);
+        set_status(STATUS_PROCESS_CAP);
         return false;
     }
     processes++;
@@ -315,7 +322,7 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
     int best_result = -1;
     char best_path_str[MAX_PATH_LEN] = "";
 
-    if (is_solution_found()) {
+    if (should_terminate()) {
         return -1;
     }
     // Delay to prevent too frequent requests to Wikipedia
@@ -329,13 +336,13 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
 
     // Loop through all the neighboring hyperlinks to see if any of them match the target
     for (int i = 0; i < num_links; i++) {
-        if (is_solution_found()) {
+        if (should_terminate()) {
             free_hyperlinks(labels, urls, num_links);
             return -1;
         }
 
         if (strcmp(end_url, urls[i]) == 0) {
-            mark_solution_found();
+            set_status(STATUS_FOUND);
 
             printf("\n======= A CHILD HAS FOUND THE DESTINATION URL, WAITING FOR OTHER PROCESSES TO TERMINATE =======\n");
             char *final_path[max_depth + 2];
@@ -366,7 +373,7 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
 
     // Loop through all neighbors
     for (int i = 0; i < num_links; i++) {
-        if (is_solution_found()) {
+        if (should_terminate()) {
             break;
         }
 
@@ -374,7 +381,7 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
 
         // Wait until the max process limit is no longer an issue (ie a spot has freed up)
         while (!process_limit_check(max_processes)) {
-            if (is_solution_found()) {
+            if (should_terminate()) {
                 break;
             }
 
@@ -410,14 +417,14 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
             close(pipes[num_children - 1][0]);
 
             if (child_result != -1) {
-                mark_solution_found();
+                set_status(STATUS_FOUND);
                 break;
             }
 
             num_children--;
         }
 
-        if (is_solution_found()) {
+        if (should_terminate()) {
             break;
         }
 
@@ -451,7 +458,7 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
         if (r == 0) {
             close(pipes[num_children][0]);
 
-            if (is_solution_found()) {
+            if (should_terminate()) {
                 int result = -1;
                 write(pipes[num_children][1], &result, sizeof(int));
                 close(pipes[num_children][1]);
@@ -472,7 +479,7 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
             int result = depth_first_search(urls[i], end_url, depth + 1, max_depth, max_processes, next_path, path_len + 1, child_path_str);
 
             if (result != -1) {
-                mark_solution_found();
+                set_status(STATUS_FOUND);
             }
 
             if (write(pipes[num_children][1], &result, sizeof(int)) != sizeof(int)) {
@@ -521,7 +528,7 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
                     strcpy(best_path_str, temp_path);
                 }
             }
-            mark_solution_found();
+            set_status(STATUS_FOUND);
         }
         close(pipes[i][0]);
     }
@@ -539,14 +546,19 @@ int depth_first_search(char *current_url, char *end_url, int depth, int max_dept
 void start_search(char *start_url, char *end_url, int max_depth, int max_processes){
     initialize_urls_file();
     initialize_processes_file();
-    initialize_found_file();
+    initialize_status_file();
     cleanup_html_files();
     char *path[4];
     path[0] = start_url;
     char found_path_str[MAX_PATH_LEN] = "";
     int result = depth_first_search(start_url, end_url, 0, max_depth + 1, max_processes, path, 1, found_path_str);
     if (result == -1){
-        printf("\nNo path found.\n\n");
+        int status = read_status();
+        if (status == STATUS_PROCESS_CAP) {
+            printf("\n ======= Search terminated: process cap of %d was reached. ======= \n", max_processes);
+        } else {
+            printf("\nNo path found.\n");
+        }
     }
     else {
         printf("%s\n", found_path_str);
