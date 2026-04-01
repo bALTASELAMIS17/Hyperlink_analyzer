@@ -22,7 +22,7 @@ html_files:
  
 clean:
 	rm -f hyperlink_info hyperlink_info.o dfs.o parser.o curling.o
-	rm -f status.txt processes.txt discovered_urls.txt
+	rm -f status.dat processes.dat discovered_urls.txt
 	rm -rf html_files
  
 .PHONY: all clean html_files

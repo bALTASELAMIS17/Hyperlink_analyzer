@@ -12,9 +12,9 @@
 #define MAX_LINKS 1000
 #define MAX_URL_LEN 100
 #define MAX_LINE 1024
-#define PROCESSES_FILE "processes.txt"
+#define PROCESSES_FILE "processes.dat"
 #define MAX_PATH_LEN 4096
-#define STATUS_FILE "status.txt"
+#define STATUS_FILE "status.dat"
 #define STATUS_SEARCHING 0
 #define STATUS_FOUND 1
 #define STATUS_PROCESS_CAP 2
